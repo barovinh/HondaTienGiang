@@ -2,9 +2,9 @@
    Replace EMAILJS keys in EMAILJS_CONFIG before using */
 
 const EMAILJS_CONFIG = {
-  service_id: 'YOUR_SERVICE_ID',
-  template_id: 'YOUR_TEMPLATE_ID',
-  user_id: 'YOUR_USER_ID'
+  service_id: 'service_vg1n0xc',
+  template_id: 'template_0gxdcga',
+  user_id: '2N2lJSVLitMSVcPoU'
 };
 
 const POPUP_LAST_KEY = 'honda_demo_popup_last';
