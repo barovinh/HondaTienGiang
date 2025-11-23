@@ -1,0 +1,38 @@
+.btn-close {}
+
+.btn-close:hover {
+    color: gray;
+    background-color: lightgray;
+    border-radius: 3px 5px;
+    cursor: pointer;
+}
+
+.btn-close:active {
+    color: white;
+    background-color: gray;
+    border-radius: 3px 5px;
+}
+
+.btn-ok:hover {
+    color: rgb(255, 255, 255);
+    background-color: rgb(255, 0, 0);
+    cursor: pointer;
+}
+
+.btn-ok:active {
+    color: white;
+    background-color: rgb(207, 0, 0);
+    cursor: pointer;
+
+}
+
+.title{
+    font-size: 2rem;
+    font-weight: bold;
+    margin-bottom: 1rem;
+}
+
+.h1{
+    font-weight: bold;
+    font-size: 20px;
+}

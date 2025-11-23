@@ -1,0 +1,56 @@
+<section class="container admin-section">
+  <div class="admin-hero">
+    <h1>Module Admin</h1>
+    <p>Quản lý danh sách xe trực tiếp trên Google Sheet. Toàn bộ thao tác được thực hiện thông qua API do Google Apps Script cung cấp.</p>
+    <div class="admin-alert">
+      <strong>Workflow:</strong> GitHub Pages (front-end tĩnh) → Google Apps Script (API HTTPS) → Google Sheet (lưu trữ dữ liệu).
+    </div>
+  </div>
+
+  <div class="admin-panel">
+    <div class="panel-head">
+      <h2>Dòng xe trên Google Sheet</h2>
+      <div class="panel-actions">
+        <button type="button" id="admin-refresh" class="btn">↻ Tải lại</button>
+        <button type="button" id="admin-sync" class="btn btn-outline">⬆️ Đồng bộ về trang Dòng xe</button>
+        <button type="button" id="admin-logout" class="btn btn-outline">Đăng xuất</button>
+      </div>
+    </div>
+    <p class="muted">Sheet cần có cột: <code>name</code>, <code>description</code>, <code>imageUrl</code>, <code>price</code>. API trả về/nhận dữ liệu dạng JSON.</p>
+
+    <div id="admin-status" class="admin-status" role="status">Chưa tải dữ liệu.</div>
+
+    <div class="admin-table-wrapper">
+      <table class="admin-table" aria-live="polite">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Tên</th>
+            <th>Mô tả</th>
+            <th>Giá (VNĐ)</th>
+            <th>Ảnh</th>
+          </tr>
+        </thead>
+        <tbody id="admin-rows">
+          <tr><td colspan="4">Chưa có dữ liệu.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="admin-form-panel">
+    <h2>Thêm / cập nhật xe</h2>
+    <form id="admin-form">
+      <input type="hidden" name="rowId" id="admin-row-id">
+      <label>Tên xe<input type="text" name="name" required></label>
+      <label>Mô tả<textarea name="description" rows="3" required></textarea></label>
+      <label>Giá (VD: 789000000)<input type="number" name="price" required></label>
+      <label>Ảnh (URL)<input type="url" name="imageUrl" required></label>
+      <div class="form-actions">
+        <button type="submit" class="btn">Lưu</button>
+        <button type="reset" class="btn btn-outline" id="admin-reset">Reset</button>
+        <button type="button" class="btn btn-danger" id="admin-delete" disabled>Xoá</button>
+      </div>
+    </form>
+  </div>
+</section>
