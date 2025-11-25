@@ -1191,6 +1191,12 @@ body {
 }
 
 /* Responsive */
+@media(max-width:1120px) {
+    .container {
+        margin: 0 .6rem
+    }
+}
+
 @media(max-width:900px) {
     .vehicles-grid {
         grid-template-columns: repeat(2, 1fr)
