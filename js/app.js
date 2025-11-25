@@ -16,6 +16,25 @@ const ADMIN_DEFAULT_PASS = 'admin';
 const SESSION_LOGIN_FLAG = 'session_loggin';
 const VEHICLE_CACHE_KEY = 'honda_vehicle_cache_v1';
 const VEHICLE_CACHE_TTL = 5 * 60 * 1000;
+const VEHICLE_CHOICES = [
+  'Honda City G',
+  'Honda City L',
+  'Honda City RS',
+  'Honda Civic G',
+  'Honda Civic RS',
+  'Honda Civic RS eHEV',
+  'Honda CR-V G',
+  'Honda CR-V L',
+  'Honda CR-V L AWD',
+  'Honda CR-V RS eHEV',
+  'Honda BR-V G',
+  'Honda BR-V L',
+  'Honda HR-V G',
+  'Honda HR-V L',
+  'Honda HR-V RS eHEV',
+  'Honda Accord'
+];
+let currentRouteParams = new URLSearchParams();
 
 async function includeHTML(selector, url){
   const el = document.querySelector(selector);
@@ -33,6 +52,9 @@ async function includeHTML(selector, url){
 async function loadRoute(){
   let hash = location.hash || '#/';
   let route = hash.replace(/^#\//,'');
+  const [routeName, paramString=''] = route.split('?');
+  route = routeName || 'home';
+  currentRouteParams = new URLSearchParams(paramString);
   if(route==='') route='home';
   setActiveNav(route);
   applyRouteLayout(route);
@@ -68,6 +90,9 @@ async function loadRoute(){
         if(route === 'login'){
           initLoginForm();
         }
+        if(route === 'detail'){
+          initDetailPage();
+        }
         attachCTAHandlers();
       },400);
     });
@@ -94,8 +119,16 @@ function attachCardHandlers(){
   const cards = document.querySelectorAll('.card');
   cards.forEach(card=>{
     const btn = card.querySelector('.card-action');
-    if(btn) btn.onclick = ()=>openDetail(card);
-    card.onclick = (e)=>{ if(e.target!==btn) openDetail(card); };
+    const slug = card.dataset.slug;
+    const goDetail = ()=>{
+      if(slug){
+        location.hash = `#/detail?slug=${encodeURIComponent(slug)}`;
+      }else{
+        openDetail(card);
+      }
+    };
+    if(btn) btn.onclick = (e)=>{ e.stopPropagation(); goDetail(); };
+    card.onclick = goDetail;
   });
 }
 
@@ -167,6 +200,15 @@ async function sendEmail(formData){
 function attachLeadForm(){
   const form = document.getElementById('lead-form');
   if(!form) return;
+  const vehicleSelect = form.querySelector('select[name="vehicle"]');
+  if(vehicleSelect && !vehicleSelect.dataset.bound){
+    const options = ['<option value="">-- Chọn --</option>'];
+    VEHICLE_CHOICES.forEach(name=>{
+      options.push(`<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`);
+    });
+    vehicleSelect.innerHTML = options.join('');
+    vehicleSelect.dataset.bound = 'true';
+  }
   form.onsubmit = async (e)=>{
     e.preventDefault();
     const data = Object.fromEntries(new FormData(form).entries());
@@ -278,44 +320,34 @@ function attachCTAHandlers(){
   });
 }
 
+function getRouteParam(key){
+  return currentRouteParams.get(key);
+}
+
 async function hydrateVehicleGrid(){
   const grid = document.getElementById('vehicles-grid');
   if(!grid) return;
 
-  const cached = getVehicleCache();
-  if(cached && cached.list && cached.list.length && Date.now() - cached.ts < VEHICLE_CACHE_TTL){
-    grid.innerHTML = cached.list.map(renderVehicleCard).join('');
+  const cached = getCachedVehicles();
+  if(cached.length){
+    grid.innerHTML = cached.map(renderVehicleCard).join('');
     attachCardHandlers();
+    return;
   }
 
   grid.innerHTML = renderSkeletonCards();
 
-  if(!window.AdminApi){
-    grid.innerHTML = `<div class="vehicles-status error">Chưa nạp Admin API.</div>`;
-    return;
-  }
-
   try{
-    const response = await window.AdminApi.listVehicles();
-    const vehicles = normalizeVehicleList(response);
-    if(!vehicles.length){
+    const fresh = await fetchAndCacheVehicles();
+    if(!fresh.length){
       grid.innerHTML = `<div class="vehicles-status">Chưa có dữ liệu xe trong Google Sheet.</div>`;
-      saveVehicleCache([]);
       return;
     }
-    saveVehicleCache(vehicles);
-    grid.innerHTML = vehicles.map(renderVehicleCard).join('');
+    grid.innerHTML = fresh.map(renderVehicleCard).join('');
     attachCardHandlers();
   }catch(error){
     console.error('Vehicle API error', error);
-    if(cached && cached.list && cached.list.length){
-      const note = document.createElement('p');
-      note.className = 'vehicles-status error';
-      note.innerHTML = `Không thể cập nhật dữ liệu mới: ${escapeHTML(error.message)}`;
-      grid.parentElement.insertBefore(note, grid);
-    } else {
-      grid.innerHTML = `<div class="vehicles-status error">Không thể tải dữ liệu: ${escapeHTML(error.message)}</div>`;
-    }
+    grid.innerHTML = `<div class="vehicles-status error">Không thể tải dữ liệu: ${escapeHTML(error.message)}</div>`;
   }
 }
 
@@ -333,8 +365,9 @@ function renderVehicleCard(vehicle){
   const desc = escapeHTML(vehicle.description || 'Đang cập nhật mô tả.');
   const img = sanitizeUrl(vehicle.imageUrl) || 'https://picsum.photos/seed/honda-motion/640/400';
   const price = formatCurrency(vehicle.price);
+  const slug = escapeHTML(vehicle.slug || '');
   return `
-    <div class="card" data-title="${name}" data-desc="${desc}" data-image="${img}">
+    <div class="card" data-title="${name}" data-desc="${desc}" data-image="${img}" data-slug="${slug}">
       <div class="thumb" style="background-image:url('${img}')"></div>
       <div class="card-overlay">
         <h3>${name}</h3>
@@ -357,7 +390,8 @@ function renderSkeletonCards(count = 4){
 
 function saveVehicleCache(list){
   try{
-    const payload = { ts: Date.now(), list };
+    const normalized = prepareVehicleList(Array.isArray(list) ? list : []);
+    const payload = { ts: Date.now(), list: normalized };
     localStorage.setItem(VEHICLE_CACHE_KEY, JSON.stringify(payload));
   }catch(err){
     console.warn('Không thể lưu cache xe', err);
@@ -371,6 +405,51 @@ function getVehicleCache(){
   }catch{
     return null;
   }
+}
+
+function getCachedVehicles(){
+  const cache = getVehicleCache();
+  if(cache && Array.isArray(cache.list) && cache.list.length){
+    return prepareVehicleList(cache.list);
+  }
+  return [];
+}
+
+async function fetchAndCacheVehicles(){
+  if(!window.AdminApi) throw new Error('Chưa nạp Admin API.');
+  const response = await window.AdminApi.listVehicles();
+  const vehicles = prepareVehicleList(normalizeVehicleList(response));
+  saveVehicleCache(vehicles);
+  return vehicles;
+}
+
+async function ensureVehicleData(){
+  const cached = getCachedVehicles();
+  if(cached.length) return cached;
+  return fetchAndCacheVehicles();
+}
+
+function prepareVehicleList(list){
+  if(!Array.isArray(list)) return [];
+  return list.map((item = {}, index)=>{
+    const name = (item.name || `Mẫu xe ${index + 1}`).toString().trim();
+    const slug = (item.slug || slugify(name)).toString();
+    return {
+      ...item,
+      name,
+      slug,
+      description: item.description || 'Đang cập nhật mô tả.',
+      imageUrl: item.imageUrl || item.image || '',
+    };
+  });
+}
+
+function slugify(value=''){
+  return value.toString().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9]+/g,'-')
+    .replace(/^-+|-+$/g,'')
+    || 'vehicle';
 }
 
 function escapeHTML(value=''){
@@ -609,7 +688,7 @@ function initAdminModule(){
       setAdminStatus('Không có dữ liệu để đồng bộ.', 'error');
       return;
     }
-    saveVehicleCache(currentRows);
+    saveVehicleCache(prepareVehicleList(currentRows));
     setAdminStatus('Đã lưu cache cục bộ. Trang Dòng xe sẽ dùng dữ liệu mới.', 'success');
   });
 
@@ -620,5 +699,80 @@ function initAdminModule(){
   });
 
   loadRows();
+}
+
+async function initDetailPage(){
+  const statusEl = document.getElementById('detail-status');
+  const layout = document.getElementById('detail-layout');
+  if(!statusEl || !layout) return;
+  const slugParam = getRouteParam('slug');
+  statusEl.classList.remove('hidden','error');
+  layout.classList.add('hidden');
+  if(!slugParam){
+    statusEl.classList.add('error');
+    statusEl.textContent = 'Không có thông tin xe. Vui lòng chọn từ trang Dòng xe.';
+    return;
+  }
+  statusEl.textContent = 'Đang tải dữ liệu xe...';
+  try{
+    const vehicles = await ensureVehicleData();
+    const slug = decodeURIComponent(slugParam).toLowerCase();
+    const vehicle = vehicles.find(v => (v.slug || '').toLowerCase() === slug);
+    if(!vehicle){
+      statusEl.classList.add('error');
+      statusEl.textContent = 'Không tìm thấy xe trong dữ liệu đã đồng bộ.';
+      return;
+    }
+    renderDetailContent(vehicle);
+    statusEl.classList.add('hidden');
+    layout.classList.remove('hidden');
+  }catch(error){
+    console.error('Detail load error', error);
+    statusEl.classList.add('error');
+    statusEl.textContent = `Không thể tải dữ liệu: ${error.message}`;
+  }
+}
+
+function renderDetailContent(vehicle){
+  const imageEl = document.getElementById('detail-image');
+  const titleEl = document.getElementById('detail-title');
+  const descEl = document.getElementById('detail-description');
+  const priceEl = document.getElementById('detail-price');
+  const specsEl = document.getElementById('detail-specs');
+  const badgeEl = document.getElementById('detail-badge');
+  const bookBtn = document.getElementById('detail-book-test');
+  const imageUrl = sanitizeUrl(vehicle.imageUrl) || 'https://picsum.photos/seed/honda-detail/1024/640';
+  if(imageEl) imageEl.src = imageUrl;
+  if(imageEl) imageEl.alt = vehicle.name || 'Honda Vehicle';
+  if(titleEl) titleEl.textContent = vehicle.name || 'Honda';
+  if(descEl) descEl.textContent = vehicle.description || 'Đang cập nhật mô tả.';
+  if(priceEl) priceEl.textContent = vehicle.price ? formatCurrency(vehicle.price) : '';
+  if(badgeEl) badgeEl.textContent = vehicle.type || 'Honda Official';
+  if(specsEl){
+    const specs = collectVehicleHighlights(vehicle);
+    specsEl.innerHTML = specs.length ? specs.map(item=>`<li>${escapeHTML(item)}</li>`).join('') : '<li>Thông tin sẽ sớm được cập nhật.</li>';
+  }
+  if(bookBtn && !bookBtn.dataset.bound){
+    bookBtn.dataset.bound = 'true';
+    bookBtn.addEventListener('click', ()=> showLeadPopup(true));
+  }
+}
+
+function collectVehicleHighlights(vehicle){
+  if(Array.isArray(vehicle.highlights) && vehicle.highlights.length) return vehicle.highlights;
+  if(Array.isArray(vehicle.specs) && vehicle.specs.length) return vehicle.specs;
+  if(typeof vehicle.highlights === 'string'){ return splitSpecs(vehicle.highlights); }
+  if(typeof vehicle.specs === 'string'){ return splitSpecs(vehicle.specs); }
+  const extras = [];
+  if(vehicle.type) extras.push(`Phân khúc: ${vehicle.type}`);
+  if(vehicle.engine) extras.push(`Động cơ: ${vehicle.engine}`);
+  if(vehicle.transmission) extras.push(`Hộp số: ${vehicle.transmission}`);
+  if(vehicle.fuel) extras.push(`Nhiên liệu: ${vehicle.fuel}`);
+  if(vehicle.drive) extras.push(`Dẫn động: ${vehicle.drive}`);
+  return extras;
+}
+
+function splitSpecs(value=''){
+  return value.split(/\r?\n|\||,/).map(item=>item.trim()).filter(Boolean);
 }
 

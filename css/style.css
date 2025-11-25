@@ -979,6 +979,62 @@ body {
     }
 }
 
+.detail-section {
+    padding: 3rem 0 4rem;
+}
+
+.detail-layout {
+    display: grid;
+    grid-template-columns: repeat(auto-fit,minmax(280px,1fr));
+    gap: 2rem;
+    margin-top: 1rem;
+    padding: 2rem;
+    border-radius: 24px;
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 35px 60px rgba(0,0,0,0.45);
+}
+
+.detail-media img {
+    width: 100%;
+    border-radius: 18px;
+    object-fit: cover;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+}
+
+.detail-price {
+    font-size: 1.6rem;
+    font-weight: 700;
+    margin: .4rem 0 1rem;
+    color: var(--accent-secondary);
+}
+
+.detail-specs {
+    list-style: none;
+    padding: 0;
+    margin: 1.5rem 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit,minmax(180px,1fr));
+    gap: .75rem;
+}
+
+.detail-specs li {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.04);
+    border-radius: 12px;
+    padding: .75rem 1rem;
+}
+
+.detail-actions {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.hidden {
+    display: none !important;
+}
+
 /* Page fade transitions */
 .page-fade {
     position: relative;
