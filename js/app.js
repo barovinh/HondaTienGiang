@@ -15,7 +15,7 @@ const ADMIN_DEFAULT_USER = 'admin';
 const ADMIN_DEFAULT_PASS = 'admin';
 const SESSION_LOGIN_FLAG = 'session_loggin';
 const VEHICLE_CACHE_KEY = 'honda_vehicle_cache_v1';
-const VEHICLE_CACHE_TTL = 5 * 60 * 1000;
+const VEHICLE_CACHE_TTL = 30 * 60 * 1000;
 const VEHICLE_CHOICES = [
   'Honda City G',
   'Honda City L',
@@ -488,7 +488,11 @@ function getVehicleCache(){
 function getCachedVehicles(){
   const cache = getVehicleCache();
   if(cache && Array.isArray(cache.list) && cache.list.length){
-    return prepareVehicleList(cache.list);
+    const age = Date.now() - Number(cache.ts || 0);
+    if(age >= 0 && age <= VEHICLE_CACHE_TTL){
+      return prepareVehicleList(cache.list);
+    }
+    localStorage.removeItem(VEHICLE_CACHE_KEY);
   }
   return [];
 }
