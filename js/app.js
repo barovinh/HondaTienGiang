@@ -34,7 +34,80 @@ const VEHICLE_CHOICES = [
   'Honda HR-V RS eHEV',
   'Honda Accord'
 ];
+const COLOR_NAME_MAP = {
+  T: 'Trắng',
+  T1: 'Trắng ngọc',
+  T2: 'Trắng ngà',
+  T3: 'Trắng bạc',
+  D: 'Đen',
+  D1: 'Đỏ',
+  X: 'Xanh',
+  X1: 'Xám',
+  TI: 'Titan',
+  G: 'Ghi',
+  V: 'Vàng cát'
+};
 let currentRouteParams = new URLSearchParams();
+let loadingRequestCount = 0;
+
+function setCookie(name, value, days = 7){
+  try{
+    const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toUTCString();
+    document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; expires=${expires}; path=/`;
+  }catch(error){
+    console.warn('Không thể lưu cookie', name, error);
+  }
+}
+
+function getCookie(name){
+  try{
+    const encoded = `${encodeURIComponent(name)}=`;
+    const parts = document.cookie ? document.cookie.split(';') : [];
+    for(const part of parts){
+      const trimmed = part.trim();
+      if(trimmed.startsWith(encoded)){
+        return decodeURIComponent(trimmed.substring(encoded.length));
+      }
+    }
+    return null;
+  }catch(error){
+    console.warn('Không thể đọc cookie', name, error);
+    return null;
+  }
+}
+
+function deleteCookie(name){
+  document.cookie = `${encodeURIComponent(name)}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+}
+
+function showLoadingOverlay(message = 'Đang tải dữ liệu...'){
+  const overlay = document.getElementById('app-loading');
+  if(!overlay) return;
+  const messageEl = overlay.querySelector('[data-loading-message]');
+  if(messageEl) messageEl.textContent = message;
+  loadingRequestCount += 1;
+  overlay.setAttribute('aria-busy', 'true');
+  overlay.classList.remove('hidden');
+}
+
+function hideLoadingOverlay(force = false){
+  const overlay = document.getElementById('app-loading');
+  if(!overlay) return;
+  loadingRequestCount = force ? 0 : Math.max(loadingRequestCount - 1, 0);
+  if(loadingRequestCount === 0){
+    overlay.classList.add('hidden');
+    overlay.setAttribute('aria-busy', 'false');
+  }
+}
+
+async function withLoading(message, action){
+  showLoadingOverlay(message);
+  try{
+    return await action();
+  }finally{
+    hideLoadingOverlay();
+  }
+}
 
 async function includeHTML(selector, url){
   const el = document.querySelector(selector);
@@ -50,6 +123,7 @@ async function includeHTML(selector, url){
 
 // Simple hash router that fetches pages from /pages/<name>.html
 async function loadRoute(){
+  // showLoadingOverlay('Đang tải trang...');
   let hash = location.hash || '#/';
   let route = hash.replace(/^#\//,'');
   const [routeName, paramString=''] = route.split('?');
@@ -77,23 +151,27 @@ async function loadRoute(){
     requestAnimationFrame(()=>{
       app.classList.add('fade-enter-active');
       setTimeout(()=>{
-        app.classList.remove('fade-enter','fade-enter-active');
-        attachCardHandlers();
-        if(route === 'vehicles'){
-          hydrateVehicleGrid();
-        }
-        if(route === 'admin'){
-          if(requireAdminSession()){
-            initAdminModule();
+        try{
+          app.classList.remove('fade-enter','fade-enter-active');
+          attachCardHandlers();
+          if(route === 'vehicles'){
+            hydrateVehicleGrid();
           }
+          if(route === 'admin'){
+            if(requireAdminSession()){
+              initAdminModule();
+            }
+          }
+          if(route === 'login'){
+            initLoginForm();
+          }
+          if(route === 'detail'){
+            initDetailPage();
+          }
+          attachCTAHandlers();
+        }finally{
+          hideLoadingOverlay();
         }
-        if(route === 'login'){
-          initLoginForm();
-        }
-        if(route === 'detail'){
-          initDetailPage();
-        }
-        attachCTAHandlers();
       },400);
     });
   },160);
@@ -213,7 +291,7 @@ function attachLeadForm(){
     e.preventDefault();
     const data = Object.fromEntries(new FormData(form).entries());
     // add more params if needed
-    const result = await sendEmail(data);
+    const result = await withLoading('Đang gửi yêu cầu...', ()=> sendEmail(data));
     if(result.ok){
       alert('Cảm ơn! Chúng tôi sẽ liên hệ bạn.');
       document.getElementById('lead-popup').classList.add('hidden');
@@ -417,10 +495,12 @@ function getCachedVehicles(){
 
 async function fetchAndCacheVehicles(){
   if(!window.AdminApi) throw new Error('Chưa nạp Admin API.');
-  const response = await window.AdminApi.listVehicles();
-  const vehicles = prepareVehicleList(normalizeVehicleList(response));
-  saveVehicleCache(vehicles);
-  return vehicles;
+  return withLoading('Đang đồng bộ dữ liệu xe...', async ()=>{
+    const response = await window.AdminApi.listVehicles();
+    const vehicles = prepareVehicleList(normalizeVehicleList(response));
+    saveVehicleCache(vehicles);
+    return vehicles;
+  });
 }
 
 async function ensureVehicleData(){
@@ -434,12 +514,15 @@ function prepareVehicleList(list){
   return list.map((item = {}, index)=>{
     const name = (item.name || `Mẫu xe ${index + 1}`).toString().trim();
     const slug = (item.slug || slugify(name)).toString();
+    const colorField = item.colorIds || item.color_id || item.colorId || item.color_code || item.colorCode || item.colors || item.color || '';
+    const colorIds = parseColorIds(colorField);
     return {
       ...item,
       name,
       slug,
       description: item.description || 'Đang cập nhật mô tả.',
       imageUrl: item.imageUrl || item.image || '',
+      colorIds,
     };
   });
 }
@@ -479,21 +562,47 @@ function formatCurrency(value){
   return num.toLocaleString('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
 }
 
+function normalizeColorCode(value){
+  if(value === null || value === undefined) return '';
+  return value.toString().trim().toUpperCase();
+}
+
+function parseColorIds(value){
+  if(!value) return [];
+  let entries = [];
+  if(Array.isArray(value)){
+    entries = value;
+  }else if(typeof value === 'string'){
+    entries = value.split(/[,|\/\s]+/);
+  }else{
+    return [];
+  }
+  const normalized = entries.map(normalizeColorCode).filter(Boolean);
+  return Array.from(new Set(normalized));
+}
+
+function getColorLabel(code=''){
+  const normalized = normalizeColorCode(code);
+  if(!normalized) return '';
+  return COLOR_NAME_MAP[normalized] || normalized;
+}
+
 function isAdminLoggedIn(){
-  return sessionStorage.getItem(SESSION_LOGIN_FLAG) === 'true';
+  return getCookie(SESSION_LOGIN_FLAG) === 'true';
 }
 
 function setAdminLoggedIn(state){
   if(state){
-    sessionStorage.setItem(SESSION_LOGIN_FLAG, 'true');
+    setCookie(SESSION_LOGIN_FLAG, 'true', 7);
   }else{
-    sessionStorage.removeItem(SESSION_LOGIN_FLAG);
+    deleteCookie(SESSION_LOGIN_FLAG);
   }
 }
 
 function requireAdminSession(){
   if(isAdminLoggedIn()) return true;
-  sessionStorage.setItem(ADMIN_REDIRECT_KEY, '#/admin');
+  const fallbackHash = location.hash || '#/admin';
+  setCookie(ADMIN_REDIRECT_KEY, fallbackHash, 1);
   if(location.hash !== '#/login'){
     location.hash = '#/login';
   }else{
@@ -526,8 +635,8 @@ function initLoginForm(){
     if(username === ADMIN_DEFAULT_USER && password === ADMIN_DEFAULT_PASS){
       setAdminLoggedIn(true);
       setLoginStatus('Đăng nhập thành công, đang chuyển hướng...', 'success');
-      const target = sessionStorage.getItem(ADMIN_REDIRECT_KEY) || '#/admin';
-      sessionStorage.removeItem(ADMIN_REDIRECT_KEY);
+      const target = getCookie(ADMIN_REDIRECT_KEY) || '#/admin';
+      deleteCookie(ADMIN_REDIRECT_KEY);
       setTimeout(()=>{ location.hash = target; }, 600);
     }else{
       setLoginStatus('Sai tên đăng nhập hoặc mật khẩu.', 'error');
@@ -537,7 +646,7 @@ function initLoginForm(){
 
 function logoutAdmin(){
   setAdminLoggedIn(false);
-  sessionStorage.removeItem(ADMIN_REDIRECT_KEY);
+  deleteCookie(ADMIN_REDIRECT_KEY);
 }
 
 function initAdminModule(){
@@ -617,7 +726,7 @@ function initAdminModule(){
   async function loadRows(){
     setAdminStatus('Đang lấy dữ liệu từ Google Sheet...');
     try{
-      const response = await window.AdminApi.listVehicles();
+      const response = await withLoading('Đang tải dữ liệu từ Google Sheet...', ()=> window.AdminApi.listVehicles());
       currentRows = normalizeVehicleList(response);
       renderRows(currentRows);
       setAdminStatus(`Đã tải ${currentRows.length} dòng.`, 'success');
@@ -644,10 +753,10 @@ function initAdminModule(){
     }
     try{
       if(rowId){
-        await window.AdminApi.updateVehicle(rowId, payload);
+        await withLoading('Đang cập nhật dòng...', ()=> window.AdminApi.updateVehicle(rowId, payload));
         setAdminStatus('Đã cập nhật dòng.', 'success');
       }else{
-        await window.AdminApi.createVehicle(payload);
+        await withLoading('Đang thêm dòng mới...', ()=> window.AdminApi.createVehicle(payload));
         setAdminStatus('Đã thêm dòng mới.', 'success');
       }
       await loadRows();
@@ -663,7 +772,7 @@ function initAdminModule(){
     if(!rowId) return;
     if(!confirm('Bạn có chắc muốn xoá dòng này?')) return;
     try{
-      await window.AdminApi.deleteVehicle(rowId);
+      await withLoading('Đang xoá dòng...', ()=> window.AdminApi.deleteVehicle(rowId));
       setAdminStatus('Đã xoá dòng.', 'success');
       await loadRows();
       resetForm();
@@ -752,9 +861,66 @@ function renderDetailContent(vehicle){
     const specs = collectVehicleHighlights(vehicle);
     specsEl.innerHTML = specs.length ? specs.map(item=>`<li>${escapeHTML(item)}</li>`).join('') : '<li>Thông tin sẽ sớm được cập nhật.</li>';
   }
+  renderColorOptions(vehicle);
   if(bookBtn && !bookBtn.dataset.bound){
     bookBtn.dataset.bound = 'true';
     bookBtn.addEventListener('click', ()=> showLeadPopup(true));
+  }
+}
+
+function renderColorOptions(vehicle){
+  const group = document.getElementById('detail-color-group');
+  const listEl = document.getElementById('detail-color-options');
+  const selectionEl = document.getElementById('detail-color-selection');
+  if(!group || !listEl || !selectionEl) return;
+  const colorIds = Array.isArray(vehicle.colorIds) ? vehicle.colorIds : [];
+  if(!colorIds.length){
+    group.classList.add('hidden');
+    listEl.innerHTML = '';
+    selectionEl.textContent = '';
+    return;
+  }
+  group.classList.remove('hidden');
+  const buttonsMarkup = colorIds.map(code=>{
+    const label = escapeHTML(getColorLabel(code));
+    const normalizedCode = escapeHTML(normalizeColorCode(code));
+    return `<button type="button" class="color-chip" data-color-code="${normalizedCode}" aria-pressed="false">${label}</button>`;
+  }).join('');
+  listEl.innerHTML = buttonsMarkup;
+  const buttons = Array.from(listEl.querySelectorAll('.color-chip'));
+  if(!buttons.length){
+    selectionEl.textContent = '';
+    return;
+  }
+  let activeCode = normalizeColorCode(colorIds[0]);
+  updateSelection(activeCode);
+
+  function updateSelection(code){
+    const label = getColorLabel(code);
+    selectionEl.textContent = label ? `Đang xem: ${label} (${code})` : `Đang xem mã màu ${code}`;
+  }
+
+  function setActiveButton(target){
+    buttons.forEach(btn=>{
+      const isActive = btn === target;
+      btn.classList.toggle('is-active', isActive);
+      btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+  }
+
+  buttons.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      activeCode = normalizeColorCode(btn.dataset.colorCode);
+      setActiveButton(btn);
+      updateSelection(activeCode);
+      // Placeholder for future image swapping by color_id
+    });
+  });
+
+  const defaultBtn = buttons.find(btn=>normalizeColorCode(btn.dataset.colorCode) === activeCode) || buttons[0];
+  if(defaultBtn){
+    setActiveButton(defaultBtn);
+    updateSelection(normalizeColorCode(defaultBtn.dataset.colorCode));
   }
 }
 
