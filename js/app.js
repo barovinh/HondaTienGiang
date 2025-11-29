@@ -15,7 +15,7 @@ const ADMIN_DEFAULT_USER = 'admin';
 const ADMIN_DEFAULT_PASS = 'admin';
 const SESSION_LOGIN_FLAG = 'session_loggin';
 const VEHICLE_CACHE_KEY = 'honda_vehicle_cache_v1';
-const VEHICLE_CACHE_TTL = 30 * 60 * 1000;
+const VEHICLE_CACHE_TTL = 10 * 60 * 1000;
 const VEHICLE_CHOICES = [
   'Honda City G',
   'Honda City L',
@@ -858,7 +858,14 @@ function renderDetailContent(vehicle){
   if(imageEl) imageEl.src = imageUrl;
   if(imageEl) imageEl.alt = vehicle.name || 'Honda Vehicle';
   if(titleEl) titleEl.textContent = vehicle.name || 'Honda';
-  if(descEl) descEl.textContent = vehicle.description || 'Đang cập nhật mô tả.';
+  if(descEl){
+    if(!descEl.dataset.minHeight){
+      descEl.dataset.minHeight = descEl.scrollHeight.toString();
+    }
+    const descText = (vehicle.description || 'Đang cập nhật mô tả.').trim();
+    descEl.value = descText || 'Đang cập nhật mô tả.';
+    autoSizeTextarea(descEl);
+  }
   if(priceEl) priceEl.textContent = vehicle.price ? formatCurrency(vehicle.price) : '';
   if(badgeEl) badgeEl.textContent = vehicle.type || 'Honda Official';
   if(specsEl){
@@ -870,6 +877,15 @@ function renderDetailContent(vehicle){
     bookBtn.dataset.bound = 'true';
     bookBtn.addEventListener('click', ()=> showLeadPopup(true));
   }
+}
+
+function autoSizeTextarea(textarea){
+  if(!textarea) return;
+  const computedMin = parseFloat(window.getComputedStyle(textarea).minHeight || '0');
+  const minHeight = Number(textarea.dataset.minHeight) || computedMin || 0;
+  textarea.style.height = 'auto';
+  const target = Math.max(textarea.scrollHeight, minHeight || 0);
+  textarea.style.height = `${target}px`;
 }
 
 function renderColorOptions(vehicle){
