@@ -29,10 +29,11 @@
             <th>Mô tả</th>
             <th>Giá (VNĐ)</th>
             <th>Ảnh</th>
+            <th>Thao tác</th>
           </tr>
         </thead>
         <tbody id="admin-rows">
-          <tr><td colspan="4">Chưa có dữ liệu.</td></tr>
+          <tr><td colspan="6">Chưa có dữ liệu.</td></tr>
         </tbody>
       </table>
     </div>
@@ -41,7 +42,7 @@
   <div class="admin-form-panel">
     <h2>Thêm / cập nhật xe</h2>
     <form id="admin-form">
-      <input type="hidden" name="rowId" id="admin-row-id">
+      <input type="hidden" name="id" id="admin-row-id">
       <label>Tên xe<input type="text" name="name" required></label>
       <label>Mô tả<textarea name="description" rows="3" required></textarea></label>
       <label>Giá (VD: 789000000)<input type="number" name="price" required></label>

@@ -117,6 +117,7 @@ async function includeHTML(selector, url){
     el.innerHTML = await res.text();
     if(selector === '#site-header'){
       initNavToggle();
+      initHeaderSearch();
     }
   }catch(e){ console.error('Include failed', url, e); }
 }
@@ -157,6 +158,9 @@ async function loadRoute(){
           if(route === 'vehicles'){
             hydrateVehicleGrid();
           }
+          if(route === 'home'){
+            initHomePage();
+          }
           if(route === 'admin'){
             if(requireAdminSession()){
               initAdminModule();
@@ -168,6 +172,9 @@ async function loadRoute(){
           if(route === 'detail'){
             initDetailPage();
           }
+          if(route === 'search'){
+            initSearchPage();
+          }
           attachCTAHandlers();
         }finally{
           hideLoadingOverlay();
@@ -175,6 +182,176 @@ async function loadRoute(){
       },400);
     });
   },160);
+}
+
+function normalizeSearchText(value=''){
+  return value.toString().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+function filterVehiclesByName(vehicles, query){
+  const q = normalizeSearchText(query);
+  if(!q) return [];
+  return (Array.isArray(vehicles) ? vehicles : []).filter(v=>{
+    const name = normalizeSearchText(v?.name || '');
+    return name.includes(q);
+  });
+}
+
+function initHeaderSearch(){
+  const form = document.getElementById('header-search-form');
+  const input = document.getElementById('header-search-input');
+  const suggestionsEl = document.getElementById('header-search-suggestions');
+  if(!form || !input || !suggestionsEl) return;
+  if(form.dataset.bound) return;
+  form.dataset.bound = 'true';
+
+  let vehiclesCache = null;
+  let lastQuery = '';
+  let debounceId = null;
+
+  function hideSuggestions(){
+    suggestionsEl.classList.add('hidden');
+    suggestionsEl.innerHTML = '';
+    suggestionsEl.removeAttribute('data-open');
+  }
+
+  function showSuggestions(items){
+    if(!items.length){
+      hideSuggestions();
+      return;
+    }
+    suggestionsEl.classList.remove('hidden');
+    suggestionsEl.setAttribute('data-open','true');
+    suggestionsEl.innerHTML = items.map(item=>{
+      const name = escapeHTML(item.name || 'Honda');
+      const slug = escapeHTML(item.slug || '');
+      const price = item.price ? escapeHTML(formatCurrency(item.price)) : '';
+      return `
+        <button type="button" class="suggestion-item" role="option" data-slug="${slug}">
+          <span class="suggestion-name">${name}</span>
+          ${price ? `<span class="suggestion-meta">${price}</span>` : ''}
+          <span class="suggestion-action" aria-hidden="true">Xem chi tiết</span>
+        </button>
+      `;
+    }).join('');
+
+    suggestionsEl.querySelectorAll('.suggestion-item').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const slug = btn.getAttribute('data-slug') || '';
+        if(slug){
+          hideSuggestions();
+          input.blur();
+          location.hash = `#/detail?slug=${encodeURIComponent(slug)}`;
+        }
+      });
+    });
+  }
+
+  async function ensureVehiclesLoaded(){
+    if(Array.isArray(vehiclesCache) && vehiclesCache.length) return vehiclesCache;
+    vehiclesCache = await ensureVehicleData();
+    return vehiclesCache;
+  }
+
+  async function updateSuggestions(){
+    const q = input.value || '';
+    lastQuery = q;
+    const trimmed = q.trim();
+    if(!trimmed){
+      hideSuggestions();
+      return;
+    }
+    try{
+      const vehicles = await ensureVehiclesLoaded();
+      if(lastQuery !== q) return;
+      const matches = filterVehiclesByName(vehicles, trimmed).slice(0, 6);
+      showSuggestions(matches);
+    }catch(error){
+      console.warn('Header search load error', error);
+      hideSuggestions();
+    }
+  }
+
+  input.addEventListener('input', ()=>{
+    if(debounceId) clearTimeout(debounceId);
+    debounceId = setTimeout(updateSuggestions, 140);
+  });
+
+  input.addEventListener('focus', ()=>{
+    if(input.value.trim()) updateSuggestions();
+  });
+
+  form.addEventListener('submit', (e)=>{
+    e.preventDefault();
+    const q = input.value.trim();
+    if(!q){
+      hideSuggestions();
+      return;
+    }
+    hideSuggestions();
+    input.blur();
+    location.hash = `#/search?q=${encodeURIComponent(q)}`;
+  });
+
+  document.addEventListener('click', (e)=>{
+    if(!form.contains(e.target)){
+      hideSuggestions();
+    }
+  });
+
+  window.addEventListener('hashchange', hideSuggestions);
+}
+
+async function initSearchPage(){
+  const statusEl = document.getElementById('search-status');
+  const grid = document.getElementById('search-grid');
+  const subtitleEl = document.getElementById('search-subtitle');
+  if(!statusEl || !grid) return;
+
+  const q = (getRouteParam('q') || getRouteParam('query') || '').toString();
+  const query = q.trim();
+  if(subtitleEl){
+    subtitleEl.textContent = query ? `Từ khóa: "${query}"` : 'Vui lòng nhập từ khóa để tìm kiếm.';
+  }
+
+  const headerInput = document.getElementById('header-search-input');
+  if(headerInput && query){
+    headerInput.value = query;
+  }
+
+  grid.classList.add('hidden');
+  statusEl.classList.remove('hidden','error');
+  statusEl.textContent = 'Đang tải dữ liệu...';
+
+  if(!query){
+    statusEl.classList.add('error');
+    statusEl.textContent = 'Chưa có từ khóa tìm kiếm.';
+    grid.innerHTML = '';
+    return;
+  }
+
+  try{
+    const vehicles = await ensureVehicleData();
+    const matches = filterVehiclesByName(vehicles, query);
+    if(!matches.length){
+      statusEl.classList.add('error');
+      statusEl.textContent = 'Không tìm thấy xe phù hợp.';
+      grid.innerHTML = '';
+      return;
+    }
+    statusEl.classList.add('hidden');
+    grid.innerHTML = matches.map(renderVehicleCard).join('');
+    grid.classList.remove('hidden');
+    attachCardHandlers();
+  }catch(error){
+    console.error('Search load error', error);
+    statusEl.classList.add('error');
+    statusEl.textContent = `Không thể tải dữ liệu: ${error.message}`;
+    grid.innerHTML = '';
+  }
 }
 
 function setActiveNav(route){
@@ -402,6 +579,59 @@ function getRouteParam(key){
   return currentRouteParams.get(key);
 }
 
+async function initHomePage(){
+  const grid = document.getElementById('home-vehicles-grid');
+  if(!grid) return;
+
+  const cached = getCachedVehicles();
+  if(cached.length){
+    grid.innerHTML = cached.slice(0, 8).map(renderHomeVehicleCard).join('');
+    attachCardHandlers();
+    return;
+  }
+
+  grid.innerHTML = renderHomeSkeletonCards(3);
+
+  try{
+    const fresh = await fetchAndCacheVehicles();
+    if(!fresh.length){
+      grid.innerHTML = `<div class="vehicles-status">Chưa có dữ liệu xe.</div>`;
+      return;
+    }
+    grid.innerHTML = fresh.slice(0, 8).map(renderHomeVehicleCard).join('');
+    attachCardHandlers();
+  }catch(error){
+    console.error('Home vehicle load error', error);
+    grid.innerHTML = `<div class="vehicles-status error">Không thể tải dữ liệu: ${escapeHTML(error.message)}</div>`;
+  }
+}
+
+function renderHomeVehicleCard(vehicle){
+  const name = escapeHTML(vehicle.name || 'Chưa đặt tên');
+  const img = sanitizeUrl(vehicle.imageUrl) || 'https://picsum.photos/seed/honda-home/640/400';
+  const slug = escapeHTML(vehicle.slug || '');
+  return `
+    <div class="card card--home" data-title="${name}" data-image="${img}" data-slug="${slug}">
+      <div class="thumb" style="background-image:url('${img}')"></div>
+      <div class="card-info">
+        <h3>${name}</h3>
+      </div>
+      <button class="card-action card-action--icon" data-tooltip="Xem chi tiết" aria-label="Xem chi tiết">
+        <i class="bi bi-arrow-right"></i>
+      </button>
+    </div>
+  `;
+}
+
+function renderHomeSkeletonCards(count = 3){
+  return Array.from({length: count}).map(()=>`
+    <div class="card skeleton-card card--home">
+      <div class="thumb"></div>
+      <div class="card-info"><h3>Đang tải dữ liệu...</h3></div>
+    </div>
+  `).join('');
+}
+
 async function hydrateVehicleGrid(){
   const grid = document.getElementById('vehicles-grid');
   if(!grid) return;
@@ -447,9 +677,8 @@ function renderVehicleCard(vehicle){
   return `
     <div class="card" data-title="${name}" data-desc="${desc}" data-image="${img}" data-slug="${slug}">
       <div class="thumb" style="background-image:url('${img}')"></div>
-      <div class="card-overlay">
+      <div class="card-info">
         <h3>${name}</h3>
-        <p>${desc}</p>
         ${price ? `<p><strong>${escapeHTML(price)}</strong></p>` : ''}
       </div>
       <button class="card-action">Xem chi tiết</button>
@@ -461,7 +690,7 @@ function renderSkeletonCards(count = 4){
   return Array.from({length: count}).map(()=>`
     <div class="card skeleton-card">
       <div class="thumb"></div>
-      <div class="card-overlay"><h3>Đang tải dữ liệu...</h3><p>Vui lòng chờ trong giây lát.</p></div>
+      <div class="card-info"><h3>Đang tải dữ liệu...</h3><p>Vui lòng chờ trong giây lát.</p></div>
     </div>
   `).join('');
 }
@@ -691,24 +920,22 @@ function initAdminModule(){
     tableBody.innerHTML = rows.map((row, index)=>{
       const rowId = row.rowId || row.id || row._rowNumber || (index + 1);
       const imageLink = row.imageUrl ? `<img src="${sanitizeUrl(row.imageUrl)}" alt="Ảnh" width="100">` : '-';
+      const descPreview = (row.description || '').toString();
+      const descText = descPreview.length > 90 ? `${descPreview.slice(0, 90)}...` : descPreview;
       return `
         <tr data-row-id="${rowId}">
           <td>${escapeHTML(String(rowId))}</td>
           <td>${escapeHTML(row.name || '')}</td>
-          <td>${escapeHTML(row.description || '')}</td>
+          <td title="${escapeHTML(descPreview)}">${escapeHTML(descText)}</td>
           <td>${escapeHTML(formatCurrency(row.price) || '')}</td>
           <td>${imageLink}</td>
+          <td>
+            <button type="button" class="btn btn-outline" data-edit="${escapeHTML(String(rowId))}">Sửa</button>
+            <button type="button" class="btn btn-outline btn-danger" data-delete="${escapeHTML(String(rowId))}">Xoá</button>
+          </td>
         </tr>
       `;
     }).join('');
-
-    tableBody.querySelectorAll('button[data-edit]').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        const rowId = btn.getAttribute('data-edit');
-        const row = currentRows.find(r=>String(r.rowId||r.id||r._rowNumber||'') === rowId);
-        if(row) fillForm(row, rowId);
-      });
-    });
   }
 
   function fillForm(row, rowId){
@@ -716,7 +943,6 @@ function initAdminModule(){
     form.elements['name'].value = row.name || '';
     form.elements['description'].value = row.description || '';
     form.elements['price'].value = row.price || '';
-    form.elements['slug'].value = row.slug || '';
     form.elements['imageUrl'].value = row.imageUrl || '';
     deleteBtn.disabled = false;
   }
@@ -786,6 +1012,39 @@ function initAdminModule(){
     }
   });
 
+  tableBody.addEventListener('click', (e)=>{
+    const editBtn = e.target.closest('button[data-edit]');
+    const deleteRowBtn = e.target.closest('button[data-delete]');
+    if(editBtn){
+      const rowId = editBtn.getAttribute('data-edit');
+      const row = currentRows.find(r=>String(r.rowId||r.id||r._rowNumber||'') === String(rowId));
+      if(row) fillForm(row, rowId);
+      return;
+    }
+    if(deleteRowBtn){
+      const rowId = deleteRowBtn.getAttribute('data-delete');
+      const row = currentRows.find(r=>String(r.rowId||r.id||r._rowNumber||'') === String(rowId));
+      const name = row?.name ? `"${row.name}"` : 'dòng này';
+      if(!confirm(`Bạn có chắc muốn xoá ${name}?`)) return;
+      withLoading('Đang xoá dòng...', async ()=>{
+        await window.AdminApi.deleteVehicle(rowId);
+      }).then(async ()=>{
+        setAdminStatus('Đã xoá dòng.', 'success');
+        await loadRows();
+        if(rowIdInput.value === String(rowId)) resetForm();
+      }).catch((error)=>{
+        console.error('Admin delete error', error);
+        setAdminStatus(error.message, 'error');
+      });
+      return;
+    }
+    const tr = e.target.closest('tr[data-row-id]');
+    if(!tr) return;
+    const rowId = tr.getAttribute('data-row-id');
+    const row = currentRows.find(r=>String(r.rowId||r.id||r._rowNumber||'') === String(rowId));
+    if(row) fillForm(row, rowId);
+  });
+
   resetBtn?.addEventListener('click', (e)=>{
     e.preventDefault();
     resetForm();
@@ -849,6 +1108,7 @@ async function initDetailPage(){
 function renderDetailContent(vehicle){
   const imageEl = document.getElementById('detail-image');
   const titleEl = document.getElementById('detail-title');
+  const breadcrumbTitleEl = document.getElementById('detail-title-breadcrumb');
   const descEl = document.getElementById('detail-description');
   const priceEl = document.getElementById('detail-price');
   const specsEl = document.getElementById('detail-specs');
@@ -858,6 +1118,7 @@ function renderDetailContent(vehicle){
   if(imageEl) imageEl.src = imageUrl;
   if(imageEl) imageEl.alt = vehicle.name || 'Honda Vehicle';
   if(titleEl) titleEl.textContent = vehicle.name || 'Honda';
+  if(breadcrumbTitleEl) breadcrumbTitleEl.textContent = vehicle.name || 'Chi tiết';
   if(descEl){
     if(!descEl.dataset.minHeight){
       descEl.dataset.minHeight = descEl.scrollHeight.toString();

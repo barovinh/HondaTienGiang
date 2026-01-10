@@ -1,30 +1,45 @@
 <section class="container detail-section">
+  <nav class="detail-breadcrumb" aria-label="Breadcrumb">
+    <a href="#/home">Trang chủ</a>
+    <span aria-hidden="true">/</span>
+    <a href="#/vehicles">Dòng xe</a>
+    <span aria-hidden="true">/</span>
+    <span id="detail-title-breadcrumb">Chi tiết</span>
+  </nav>
+
   <div id="detail-status" class="vehicles-status">Đang tải dữ liệu...</div>
+
   <div id="detail-layout" class="detail-layout hidden">
-    <div class="detail-media">
-      <img id="detail-image" src="https://picsum.photos/seed/honda-detail/1024/640" alt="Honda" />
-    </div>
-    <div class="detail-info">
-      <p class="eyebrow" id="detail-badge">Honda Official</p>
-      <h1 id="detail-title">Tên xe</h1>
-      <p class="detail-price" id="detail-price"></p>
-      <div class="detail-colors hidden" id="detail-color-group">
-        <p class="detail-color-label">Màu sắc</p>
-        <div class="detail-color-list" id="detail-color-options"></div>
-        <p class="detail-color-selection" id="detail-color-selection"></p>
-      </div>
-      <ul class="detail-specs" id="detail-specs">
-        <li>Thông tin sẽ sớm được cập nhật.</li>
-      </ul>
-      <div class="detail-actions">
-        <button class="btn" id="detail-book-test">Đặt lịch lái thử</button>
-        <a href="#/vehicles" class="btn btn-outline">← Về trang Dòng xe</a>
+    <div class="detail-main">
+      <div class="detail-media">
+        <img id="detail-image" src="https://picsum.photos/seed/honda-detail/1024/640" alt="Honda" />
       </div>
 
+      <div class="detail-info">
+        <p class="eyebrow" id="detail-badge">Honda Official</p>
+        <h1 id="detail-title">Tên xe</h1>
+        <p class="detail-price" id="detail-price"></p>
+
+        <div class="detail-colors hidden" id="detail-color-group">
+          <p class="detail-color-label">Màu sắc</p>
+          <div class="detail-color-list" id="detail-color-options"></div>
+          <p class="detail-color-selection" id="detail-color-selection"></p>
+        </div>
+<!-- 
+        <ul class="detail-specs" id="detail-specs">
+          <li>Thông tin sẽ sớm được cập nhật.</li>
+        </ul> -->
+
+        <div class="detail-actions">
+          <button class="btn" id="detail-book-test">Đặt lịch lái thử</button>
+          <a href="#/vehicles" class="btn btn-outline">← Về trang Dòng xe</a>
+        </div>
+      </div>
     </div>
-  </div>
-  <div class="detail-description-area">
-    <label for="detail-description">Ưu đãi / mô tả chi tiết</label>
-    <textarea id="detail-description" rows="8" readonly>Đang cập nhật mô tả.</textarea>
+
+    <div class="detail-description-area">
+      <label for="detail-description">Ưu đãi / mô tả chi tiết</label>
+      <textarea id="detail-description" rows="8" readonly>Đang cập nhật mô tả.</textarea>
+    </div>
   </div>
 </section>
